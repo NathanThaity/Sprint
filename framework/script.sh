@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # Nom du package contenant les classes Java
-class_dir="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint3-2649/framework/src/test/java"
+class_dir="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint4-2649/framework/src/test/java"
 
 # Répertoire de travail contenant les fichiers .java
-working_dir="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint3-2649/framework/src/main/java/com/framework/controller"
+working_dir="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint4-2649/framework/src/main/java/com/framework/controller"
 
 # Chemin du classpath contenant les bibliothèques nécessaires
-classpath="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint3-2649/framework/lib/*"
+classpath="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint4-2649/framework/lib/*"
 
 # Répertoire de sortie pour le fichier JAR
-output_dir="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint3-2649/framework"
+output_dir="C:/Users/WINDOWS 10/Documents/ETU002649/S4/Servlet/Sprint/Sprint4-2649/framework"
 
 # Création du répertoire de sortie s'il n'existe pas
 mkdir -p "$output_dir"
