@@ -16,7 +16,8 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 public class FrontController extends HttpServlet {
 
     private Map<String, Mapping> urlMappings = new HashMap<>();
@@ -45,9 +46,33 @@ public class FrontController extends HttpServlet {
         Mapping mapping = urlMappings.get(requestURL);
 
         if (mapping != null) {
-            // Afficher le chemin URL et le Mapping
-            out.println("URL: " + requestURL);
-            out.println("Mapping: " + mapping);
+            try {
+                // Récupérer la classe par son nom (assurez-vous que le nom complet du package est correct)
+                String className = mapping.getClassName();
+                Class<?> clazz = Class.forName(className);
+
+                // Créer une instance de la classe
+                Object instance = clazz.getDeclaredConstructor().newInstance();
+
+                // Récupérer la méthode par son nom
+                String methodName = mapping.getMethodName();
+                Method method = clazz.getDeclaredMethod(methodName);
+
+                // Invoquer la méthode sur l'instance de la classe
+                Object result = method.invoke(instance);
+
+                // Afficher la valeur retournée par la méthode
+                // out.println("URL: " + requestURL);
+                // out.println("Mapping: " + mapping);
+                out.println("Result: " + result);
+
+            } catch (ClassNotFoundException e) {
+                out.println("Class not found: " + mapping.getClassName());
+            } catch (NoSuchMethodException e) {
+                out.println("Method not found: " + mapping.getMethodName());
+            } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+                out.println("Error invoking method: " + e.getMessage());
+            }
         } else {
             // Afficher qu'il n'y a pas de méthode associée à ce chemin
             out.println("No method associated with URL: " + requestURL);
@@ -55,6 +80,8 @@ public class FrontController extends HttpServlet {
 
         out.close();
     }
+
+
 
     private void scanControllers() {
         try {
