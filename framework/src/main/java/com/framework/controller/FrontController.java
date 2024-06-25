@@ -1,305 +1,215 @@
-package com.framework.controller;
+package com.framework.controllers;
 
-import com.framework.annotation.*;
-import com.framework.controller.ModelView;
-import com.framework.controller.*;
-
-import java.io.*;
-import java.net.URLDecoder;
-import java.util.*;
+import com.framework.annotations.GET;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.InvocationTargetException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.RequestDispatcher;
+import java.lang.reflect.Method;
 
 public class FrontController extends HttpServlet {
-    private List<String> controller = new ArrayList<>();
-    private String controllerPackage;
-    HashMap <String,Mapping> urlMapping = new HashMap<>() ;
-    Exception exception = new Exception("");
-    
+
+    private String packageName;
+    private static List<String> controllerNames = new ArrayList<>();
+    private HashMap<String, Mapping> urlMapping = new HashMap<>();
+    String error = "";
 
     @Override
-    public void init() throws ServletException {
-        super.init();
-        controllerPackage = getInitParameter("controller-package");
-        if (controllerPackage == null || controllerPackage.isEmpty()) {
-            exception = new Exception("Le paramètre 'controller-package' doit être défini dans les paramètres d'initialisation.");
-        } else {
-            try {
-                scan();
-            } catch (Exception e) {
-                exception = e;
-                e.printStackTrace();
+    public void init(ServletConfig config) throws ServletException {
+        super.init(config);
+        packageName = config.getInitParameter("packageControllerName");
+        try {
+            if (packageName == null || packageName.isEmpty()) {
+                throw new Exception("Package name not specified");
             }
+            scanControllers(packageName);
+        } catch (Exception e) {
+            error = e.getMessage();
         }
-
     }
 
-    protected void processRequest(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        PrintWriter out = response.getWriter();
-        response.setContentType("text/html");
-
-        if (exception.getMessage()!=""){ 
-            out.println(exception.getMessage());
-        } else {
-            try {
-                String reponse = this.subProcess(request, response);
-                out.println(reponse);
-            } catch (Exception e) {
-                out.println(e.getMessage());
-                e.printStackTrace();
-            }
-        }
-        out.close();
-    }
-
-
-
-    
-    public String subProcess(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    protected void processRequest(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
         StringBuffer requestURL = request.getRequestURL();
         String[] requestUrlSplitted = requestURL.toString().split("/");
-        String map = requestUrlSplitted[requestUrlSplitted.length-1];
-        String retour = "";
-        if (requestUrlSplitted.length <=4 ) {map = "/" ;}
+        String controllerSearched = requestUrlSplitted[requestUrlSplitted.length - 1];
 
-        if (urlMapping.containsKey(map)) {
-            Mapping mapping = urlMapping.get(map);
-            retour+="<p><strong>chemin URL :</strong> "+requestURL.toString()+"</p>";
-            retour+="<p><strong>Mapping :</strong> "+mapping.getClassName()+"</p>";
-            retour+="<p><strong>MethodName :</strong> "+mapping.getMethodName()+"</p>";
-
+        if (!error.isEmpty()) {
+            response.getWriter().println(error);
+        } else if (!urlMapping.containsKey(controllerSearched)) {
+            response.getWriter().println("<p>No method related .</p>");
+        } else {
             try {
-                Class<?> classe = Class.forName(mapping.getClassName());
-                Object classInstance = classe.getDeclaredConstructor().newInstance();
-    
-                Boolean paramExist = false;
-                Method[] methods = classInstance.getClass().getDeclaredMethods();
-                for (Method item : methods) {
-                    if (item.getName().equals(mapping.getMethodName())) {
-                        paramExist = item.getParameterCount() > 0;
-                    }
-                }
-                if (paramExist) {
-                // listeParam as parameters of the method
-                    Parameter[] listeParam = null;                    
-                    for (Method item : methods) {
-                        if (item.getName().equals(mapping.getMethodName())) {
-                            listeParam = item.getParameters();
+                Mapping mapping = urlMapping.get(controllerSearched);
+                Class<?> clazz = Class.forName(mapping.getClassName());
+                Object object = clazz.getDeclaredConstructor().newInstance();
+                Method method = null;
+
+                for (Method m : clazz.getDeclaredMethods()) {
+                    if (m.getName().equals(mapping.getMethodeName())) {
+                        if (request.getMethod().equalsIgnoreCase("GET") && m.isAnnotationPresent(GET.class)) {
+                            method = m;
+                            break;
+                        } else if (request.getMethod().equalsIgnoreCase("POST") && m.isAnnotationPresent(AnnotationPost.class)) {
+                            method = m;
                             break;
                         }
                     }
-                    Object[] values = new Object[listeParam.length];
-                // formParameterNames as parameters of the request 
-                    Enumeration<String> formParameterNames = request.getParameterNames();
-                    for (int i = 0; i < values.length; i++) {
-                        // Begin change
-                        String paramName = listeParam[i].getName();
-                        if (listeParam[i].isAnnotationPresent(Param.class)) {
-                            paramName = listeParam[i].getAnnotation(Param.class).value();
-                        } else {
-                            String errorMess = "vous n'avez pas annoté le paramètre '"+paramName+"' par @Param(\"...\")"  ;
-                            throw new Exception("<p>ETU-002441 : "+errorMess+"</p>");
-                        }
+                }
 
-                        if (!listeParam[i].getClass().isPrimitive() && listeParam[i].getType().isAnnotationPresent(Objet.class)) {
-                            Class<?> clazz = Class.forName(listeParam[i].getParameterizedType().getTypeName());
-                            Object obj = clazz.getDeclaredConstructor().newInstance();
-                            Field[] fields = obj.getClass().getDeclaredFields();
-                            Object[] valuesObject = new Object[fields.length];
-                            while (formParameterNames.hasMoreElements()) {
-                                String name = formParameterNames.nextElement();
-                                for (int j = 0; j < fields.length; j++) {
-                                    if (name.startsWith(paramName+".")) {
-                                        int indexSuite = (paramName + ".").length();
-                                        String paramSimpleName = name.substring(indexSuite);
-                                        if (fields[j].isAnnotationPresent(AttribObjet.class)){
-                                            if (paramSimpleName.equals(fields[j].getAnnotation(AttribObjet.class).value())){
-                                                valuesObject[j] = CastTo.castParameter(request.getParameter(name), fields[j].getType().getName());
-                                            }
-                                        } else {
-                                            if (paramSimpleName.equals(fields[j].getName())){
-                                                valuesObject[j] = CastTo.castParameter(request.getParameter(name), fields[j].getType().getName());
-                                            } 
-                                        }
-                                    }
-                                }
-                            }
-                            obj = process(obj, valuesObject);
-                            values[i] = obj;
-                        }
-                        else {
-                            boolean isNull = true;
-                            while (formParameterNames.hasMoreElements()) {
-                                String name = formParameterNames.nextElement();
-                                if (name.equals(paramName)) {
-                                    values[i] =CastTo.castParameter(request.getParameter(name), listeParam[i].getParameterizedType().getTypeName());
-                                    isNull = false;
-                                    break;
-                                }
-                            }
-                            if (isNull) {
-                                values[i] = null;
-                            }
-                        }
-                        // End change
+                if (method == null) {
+                    response.getWriter().println("<p>No Method Found</p>");
+                    return;
+                }
+                // response.getWriter().println("<p>get method param</p>");
+                Object[] parameters = getMethodParameters(method, request, response);
+                // response.getWriter().println("<p>invoke </p>");
+                Object returnValue = method.invoke(object, parameters);
+                // response.getWriter().println("<p>invoked</p>");
+                if (returnValue instanceof String) {
+                    response.getWriter().println("Méthode trouvée dans " + (String) returnValue);
+                } else if (returnValue instanceof ModelView) {
+                    ModelView modelView = (ModelView) returnValue;
+                    for (Map.Entry<String, Object> entry : modelView.getData().entrySet()) {
+                        request.setAttribute(entry.getKey(), entry.getValue());
                     }
-
-                    Class<?>[] parameterTypes;
-                    parameterTypes = new Class<?>[values.length];
-                    for (int i = 0; i < values.length; i++) {
-                        if (values[i] instanceof Integer) {
-                            parameterTypes[i] = int.class;
-                        } else if (values[i] instanceof Double) {
-                            parameterTypes[i] = double.class;
-                        } else if (values[i] instanceof Boolean) {
-                            parameterTypes[i] = boolean.class;
-                        } else if (values[i] instanceof Long) {
-                            parameterTypes[i] = long.class;
-                        } else if (values[i] instanceof Float) {
-                            parameterTypes[i] = float.class;
-                        } else if (values[i] instanceof Short) {
-                            parameterTypes[i] = short.class;
-                        } else if (values[i] instanceof Byte) {
-                            parameterTypes[i] = byte.class;
-                        } else {
-                            parameterTypes[i] = values[i].getClass();
-                        }
-                    }
-                    Method method = classe.getDeclaredMethod(mapping.getMethodName(), parameterTypes);
-                    Object result = method.invoke(classInstance,values);
-                    retour += resultHandler(result, request, response);
+                    RequestDispatcher dispatcher = request.getRequestDispatcher(modelView.getUrl());
+                    dispatcher.forward(request, response);
                 } else {
-                    Method method = classe.getMethod(mapping.getMethodName());
-                    Object result = method.invoke(classInstance);
-                    retour += resultHandler(result, request, response);
+                    response.getWriter().println("Data type not recognized");
                 }
-            } catch (Exception e){
-                throw e;
-            }
-        } else {
-            throw new Exception("<p>Il n'y a pas de méthode associée à ce chemin \""+requestURL+"\"</p>");
-        }    
-        return retour;
-    }
-
-
-
-    public static <T> T  process(T obj, Object[] valueObjects) throws Exception {
-        Class<?> classe = obj.getClass();
-        Field[] fields = classe.getDeclaredFields();
-
-        for (int i = 0; i < fields.length; i++) {
-            Field field = fields[i];
-            field.setAccessible(true);
-            Object valeur = valueObjects[i];
-            if(valeur != null){
-                field.set(obj, valeur);
-            } else {
-                field.set(obj, null);
+            } catch (Exception e) {
+                e.printStackTrace();
+                response.getWriter().println("<p>"+e.getMessage() +"</p><p>An exception came up during the transaction .</p>");
             }
         }
-        return obj;
     }
-
-
-
-
-    public static String resultHandler(Object result, HttpServletRequest request, HttpServletResponse response) throws Exception {
-        String retour = "";
-        if (result instanceof ModelView){
-            ModelView mv = (ModelView) result;
-            RequestDispatcher dispatch = request.getRequestDispatcher(mv.getUrl());
-            Set<String> keys = mv.getData().keySet();
-            for (String key : keys) {
-                request.setAttribute(key, mv.getData().get(key));
-            }
-            dispatch.forward(request, response);
-        } else if (result instanceof String){
-            String val = (String)result;
-            retour+="<p><strong>Valeur de retour :</strong> "+val;
-        } else {
-            throw new Exception("<p>Le type de retour n'est ni un ModelView ni un String</p>");
-        }
-        return retour;
-    }
-
-
-
-
-
-
-
-
-
-
-
-    public void scan() throws Exception{
-        try {
-            String classesPath = getServletContext().getRealPath("/WEB-INF/classes");
-            String decodedPath = URLDecoder.decode(classesPath, "UTF-8");
-            String packagePath = decodedPath +"\\"+ controllerPackage.replace('.', '\\');
-            File packageDirectory = new File(packagePath);
-            if (packageDirectory.exists() && packageDirectory.isDirectory()) {
-                File[] classFiles = packageDirectory.listFiles((dir, name) -> name.endsWith(".class"));
-                if (classFiles != null) {
-                    for (File classFile : classFiles) {
-                        String className = controllerPackage + '.' + classFile.getName().substring(0, classFile.getName().length() - 6);
-                        try {
-                            Class<?> classe = Class.forName(className);
-                            if (classe.isAnnotationPresent(Controller.class)) {
-                                controller.add(classe.getSimpleName());
-
-                                Method[] methods = classe.getMethods();
-                                for (Method item : methods) {
-                                    if (item.isAnnotationPresent(Get.class)) {
-                                        // Mapping(controller.name, method.name)
-                                        Mapping mapping = new Mapping(className, item.getName());
-
-                                        Get get = item.getAnnotation(Get.class);
-                                        String getValue = get.value();
-
-                                        // HashMap.associer(annotation.value, mapping)
-                                        if (!urlMapping.containsKey(getValue)){
-                                            urlMapping.put(getValue, mapping);
-                                        } else {
-                                            throw new Exception("L'url \""+getValue+"\" apparaît plusieurs fois dans les controlleurs.");
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (ClassNotFoundException e) {
-                            throw e;
-                        }
-                    }
-                    if (controller.size()==0) {
-                        throw new Exception("Il n'y aucun controller dans ce package");
-                    }
-                }
-            } else {
-                throw new Exception("Le package "+ controllerPackage +" n'existe pas");
-            }
-        } catch (Exception e) {
-            throw e;
-        }
-    }
-
 
     @Override
-    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
         processRequest(request, response);
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        processRequest(request, response);
+    }
+
+    private void scanControllers(String packageName) throws Exception {
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        String path = packageName.replace('.', '/');
+        URL resource = classLoader.getResource(path);
+
+        if (resource == null) {
+            throw new Exception("Package non-existent: " + packageName);
+        }
+
+        Path classPath = Paths.get(resource.toURI());
+        Files.walk(classPath)
+                .filter(f -> f.toString().endsWith(".class"))
+                .forEach(f -> {
+                    String className = packageName + "." + f.getFileName().toString().replace(".class", "");
+                    try {
+                        Class<?> clazz = Class.forName(className);
+                        if (clazz.isAnnotationPresent(ControllerAnnotation.class)
+                                && !Modifier.isAbstract(clazz.getModifiers())) {
+                            controllerNames.add(clazz.getSimpleName());
+                            Method[] methods = clazz.getMethods();
+
+                            for (Method method : methods) {
+                                if (method.isAnnotationPresent(GET.class)) {
+                                    Mapping map = new Mapping(className, method.getName());
+                                    String valeur = method.getAnnotation(GET.class).value();
+                                    if (urlMapping.containsKey(valeur)) {
+                                        throw new Exception("doublant url" + valeur);
+                                    } else {
+                                        urlMapping.put(valeur, map);
+                                    }
+                                } else if (method.isAnnotationPresent(AnnotationPost.class)) {
+                                    Mapping map = new Mapping(className, method.getName());
+                                    String valeur = method.getAnnotation(AnnotationPost.class).value();
+                                    if (urlMapping.containsKey(valeur)) {
+                                        throw new Exception("doublant" + valeur);
+                                    } else {
+                                        urlMapping.put(valeur, map);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+    }
+
+    public Object[] getMethodParameters(Method method, HttpServletRequest request, HttpServletResponse response) throws Exception {
+        Parameter[] parameters = method.getParameters();
+        Object[] parameterValues = new Object[parameters.length];
+        Map<String, Object> objectInstances = new HashMap<>();
+        Enumeration<String> parameterNames = request.getParameterNames();
+    
+        for (int i = 0; i < parameters.length; i++) { 
+            Parameter parameter = parameters[i];
+    
+            if (parameter.isAnnotationPresent(Parametre.class)) {
+                Parametre param = parameter.getAnnotation(Parametre.class);
+                String paramName = param.value();
+                String paramValue = request.getParameter(paramName);
+                parameterValues[i] = paramValue;
+    
+            } else if (parameter.isAnnotationPresent(RequestObject.class)) {
+                while (parameterNames.hasMoreElements()) {
+                    String paramName = parameterNames.nextElement();
+                    if (paramName.contains(".")) {
+                        String[] parts = paramName.split("\\.");
+                        String className = parts[0];
+                        String attributeName = parts[1];
+    
+                        String fullClassName = "mg.p16.models." + className;
+                        Object instance = objectInstances.get(fullClassName);
+                        if (instance == null) {
+                            Class<?> clazz = Class.forName(fullClassName);
+                            instance = clazz.getDeclaredConstructor().newInstance();
+                            objectInstances.put(fullClassName, instance);
+                        }
+    
+                        String attribute = attributeName.substring(0, 1).toUpperCase() + attributeName.substring(1);
+                        String methodName = "set" + attribute;
+    
+                        Class<?> clazz = instance.getClass();
+                        Method setterMethod = clazz.getMethod(methodName, String.class);
+                        setterMethod.invoke(instance, request.getParameter(paramName));
+    
+                        parameterValues[i] = instance;
+                    }
+                }
+            }else{
+                throw new Exception("ETU2359 NO PARAMETER FOUND");
+            }
+        }
+        return parameterValues;
     }
     
-    @Override
-    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        processRequest(request, response);
-    }
-
 }
-
